@@ -236,12 +236,17 @@ module.exports = function(grunt) {
   var getCachePromise = function (srcFile) {
     var cache = lessCache[srcFile];
     if (cache) {
-      var stat = fs.statSync(srcFile);
+      var stat = getFileStat(srcFile);
       var output = cache.output;
       if (
         stat.size === cache.size &&
-        stat.mtime.getTime() === cache.mtime &&
-        output
+        stat.mtime === cache.mtime &&
+        output &&
+        _(output.imports).every(function(dPath) {
+          var s = getFileStat(dPath);
+          var d = cache.depends && cache.depends[dPath];
+          return d && s.size === d.size && s.mtime === d.mtime;
+        })
       ) {
         return new Promise(function(resolve) {
           resolve(output);
@@ -258,11 +263,12 @@ module.exports = function(grunt) {
     return new Promise(function(resolve, reject) {
       promise
         .then(function(output) {
-          var stat = fs.statSync(srcFile);
+          var stat = getFileStat(srcFile);
           lessCache[srcFile] = {
             size  : stat.size,
-            mtime : stat.mtime.getTime(),
-            output: output
+            mtime : stat.mtime,
+            output: output,
+            depends: _.chain(output.imports).map(function(depend) { return [depend, getFileStat(depend)] }).object().value()
           };
           return resolve(output);
         },
@@ -271,4 +277,16 @@ module.exports = function(grunt) {
         });
     });
   };
+
+  var fileStatCache = {};
+  var getFileStat = function(path) {
+    if (!fileStatCache[path]) {
+      var stat = fs.statSync(path);
+      fileStatCache[path] = {
+        size : stat.size,
+        mtime: stat.mtime.getTime()
+      }
+    }
+    return fileStatCache[path];
+  }
 };
